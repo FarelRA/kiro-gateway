@@ -43,7 +43,7 @@ from kiro.models_openai import (
     ModelList,
     ChatCompletionRequest,
 )
-from kiro.auth import KiroAuthManager, AuthType
+from kiro.auth import KiroAuthManager, AccountLoadBalancer, AuthType
 from kiro.cache import ModelInfoCache
 from kiro.model_resolver import ModelResolver
 from kiro.converters_openai import build_kiro_payload
@@ -171,7 +171,14 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
     """
     logger.info(f"Request to /v1/chat/completions (model={request_data.model}, stream={request_data.stream})")
     
-    auth_manager: KiroAuthManager = request.app.state.auth_manager
+    load_balancer: AccountLoadBalancer = getattr(request.app.state, "load_balancer", None)
+    
+    # Get auth manager from load balancer or single auth manager
+    if load_balancer:
+        auth_manager = await load_balancer.get_account_async()
+    else:
+        auth_manager: KiroAuthManager = request.app.state.auth_manager
+    
     model_cache: ModelInfoCache = request.app.state.model_cache
     
     # Note: prepare_new_request() and log_request_body() are now called by DebugLoggerMiddleware

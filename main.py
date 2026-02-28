@@ -61,6 +61,8 @@ from kiro.config import (
     REGION,
     KIRO_CREDS_FILE,
     KIRO_CLI_DB_FILE,
+    KIRO_ACCOUNTS_JSON,
+    KIRO_LOAD_BALANCING_STRATEGY,
     PROXY_API_KEY,
     LOG_LEVEL,
     SERVER_HOST,
@@ -75,7 +77,7 @@ from kiro.config import (
     VPN_PROXY_URL,
     _warn_timeout_configuration,
 )
-from kiro.auth import KiroAuthManager
+from kiro.auth import KiroAuthManager, AccountLoadBalancer
 from kiro.cache import ModelInfoCache
 from kiro.model_resolver import ModelResolver
 from kiro.routes_openai import router as openai_router
@@ -335,15 +337,29 @@ async def lifespan(app: FastAPI):
     )
     logger.info("Shared HTTP client created with connection pooling")
     
-    # Create AuthManager
-    # Priority: SQLite DB > JSON file > environment variables
-    app.state.auth_manager = KiroAuthManager(
-        refresh_token=REFRESH_TOKEN,
-        profile_arn=PROFILE_ARN,
-        region=REGION,
-        creds_file=KIRO_CREDS_FILE if KIRO_CREDS_FILE else None,
-        sqlite_db=KIRO_CLI_DB_FILE if KIRO_CLI_DB_FILE else None,
-    )
+    # Create AuthManager or LoadBalancer
+    # Priority: KIRO_ACCOUNTS_JSON > SQLite DB > JSON file > environment variables
+    if KIRO_ACCOUNTS_JSON:
+        app.state.auth_manager = None  # Not used when load balancer is active
+        app.state.load_balancer = AccountLoadBalancer(
+            accounts_json=KIRO_ACCOUNTS_JSON,
+            strategy=KIRO_LOAD_BALANCING_STRATEGY,
+            default_region=REGION
+        )
+        logger.info(f"Multi-account load balancer initialized with {app.state.load_balancer.account_count} accounts")
+        
+        # Get first account for model loading
+        auth_manager = await app.state.load_balancer.get_account_async()
+    else:
+        app.state.load_balancer = None
+        app.state.auth_manager = KiroAuthManager(
+            refresh_token=REFRESH_TOKEN,
+            profile_arn=PROFILE_ARN,
+            region=REGION,
+            creds_file=KIRO_CREDS_FILE if KIRO_CREDS_FILE else None,
+            sqlite_db=KIRO_CLI_DB_FILE if KIRO_CLI_DB_FILE else None,
+        )
+        auth_manager = app.state.auth_manager
     
     # Create model cache
     app.state.model_cache = ModelInfoCache()
@@ -353,17 +369,17 @@ async def lifespan(app: FastAPI):
     # No race conditions - requests only start after yield.
     logger.info("Loading models from Kiro API...")
     try:
-        token = await app.state.auth_manager.get_access_token()
+        token = await auth_manager.get_access_token()
         from kiro.utils import get_kiro_headers
         from kiro.auth import AuthType
-        headers = get_kiro_headers(app.state.auth_manager, token)
+        headers = get_kiro_headers(auth_manager, token)
         
         # Build params - profileArn is only needed for Kiro Desktop auth
         params = {"origin": "AI_EDITOR"}
-        if app.state.auth_manager.auth_type == AuthType.KIRO_DESKTOP and app.state.auth_manager.profile_arn:
-            params["profileArn"] = app.state.auth_manager.profile_arn
+        if auth_manager.auth_type == AuthType.KIRO_DESKTOP and auth_manager.profile_arn:
+            params["profileArn"] = auth_manager.profile_arn
         
-        list_models_url = f"{app.state.auth_manager.q_host}/ListAvailableModels"
+        list_models_url = f"{auth_manager.q_host}/ListAvailableModels"
         logger.debug(f"Fetching models from: {list_models_url}")
         
         async with httpx.AsyncClient(timeout=30) as client:

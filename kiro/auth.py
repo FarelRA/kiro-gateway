@@ -865,3 +865,179 @@ class KiroAuthManager:
     def auth_type(self) -> AuthType:
         """Authentication type (KIRO_DESKTOP or AWS_SSO_OIDC)."""
         return self._auth_type
+
+class AccountLoadBalancer:
+    """
+    Load balancer for multiple Kiro accounts.
+    
+    Manages multiple KiroAuthManager instances and distributes requests
+    across them using configurable strategies.
+    
+    Supported strategies:
+    - round_robin: Cycle through accounts sequentially
+    - random: Randomly select an account
+    - failover: Use first account, failover to next on error
+    
+    Supports mixing different account types:
+    - refresh_token: Direct refresh token configuration
+    - creds_file: JSON credentials file (Kiro Desktop or AWS SSO)
+    - sqlite_db: kiro-cli SQLite database
+    
+    Attributes:
+        accounts: List of KiroAuthManager instances
+        strategy: Load balancing strategy
+        round_robin_index: Current index for round_robin strategy
+    """
+    
+    def __init__(
+        self,
+        accounts_json: str,
+        strategy: str = "round_robin",
+        default_region: str = "us-east-1"
+    ):
+        """
+        Initialize load balancer with account configurations.
+        
+        Args:
+            accounts_json: JSON string containing account configurations
+            strategy: Load balancing strategy (round_robin, random, failover)
+            default_region: Default AWS region if not specified in account config
+        """
+        self.accounts: list[KiroAuthManager] = []
+        self.strategy = strategy
+        self.round_robin_index = 0
+        self._lock = asyncio.Lock()
+        
+        self._parse_accounts(accounts_json, default_region)
+    
+    def _parse_accounts(self, accounts_json: str, default_region: str) -> None:
+        """Parse JSON configuration and create auth managers."""
+        import json
+        
+        try:
+            accounts_data = json.loads(accounts_json)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse KIRO_ACCOUNTS_JSON: {e}")
+            return
+        
+        if not accounts_data:
+            logger.warning("KIRO_ACCOUNTS_JSON is empty")
+            return
+        
+        for i, account_config in enumerate(accounts_data):
+            try:
+                account_type = account_config.get("type", "refresh_token")
+                region = account_config.get("region", default_region)
+                
+                if account_type == "refresh_token":
+                    refresh_token = account_config.get("refresh_token", "")
+                    profile_arn = account_config.get("profile_arn", "")
+                    auth_manager = KiroAuthManager(
+                        refresh_token=refresh_token,
+                        profile_arn=profile_arn,
+                        region=region
+                    )
+                elif account_type == "creds_file":
+                    creds_file = account_config.get("creds_file", "")
+                    auth_manager = KiroAuthManager(
+                        creds_file=creds_file,
+                        region=region
+                    )
+                elif account_type == "sqlite_db":
+                    sqlite_db = account_config.get("sqlite_db", "")
+                    auth_manager = KiroAuthManager(
+                        sqlite_db=sqlite_db,
+                        region=region
+                    )
+                else:
+                    logger.warning(f"Unknown account type: {account_type}")
+                    continue
+                
+                self.accounts.append(auth_manager)
+                logger.info(f"Account {i+1} loaded: type={account_type}, region={region}")
+                
+            except Exception as e:
+                logger.error(f"Failed to load account {i+1}: {e}")
+        
+        logger.info(f"Load balancer initialized with {len(self.accounts)} accounts, strategy={self.strategy}")
+    
+    def get_account(self) -> KiroAuthManager:
+        """
+        Get an auth manager based on load balancing strategy.
+        
+        Returns:
+            KiroAuthManager instance
+            
+        Raises:
+            ValueError: If no accounts are configured
+        """
+        if not self.accounts:
+            raise ValueError("No accounts configured in load balancer")
+        
+        if self.strategy == "random":
+            import random
+            return random.choice(self.accounts)
+        
+        elif self.strategy == "failover":
+            return self.accounts[0]
+        
+        else:  # round_robin (default)
+            async def get_next():
+                async with self._lock:
+                    account = self.accounts[self.round_robin_index]
+                    self.round_robin_index = (self.round_robin_index + 1) % len(self.accounts)
+                    return account
+            # For sync context, use simple round-robin without lock
+            account = self.accounts[self.round_robin_index]
+            self.round_robin_index = (self.round_robin_index + 1) % len(self.accounts)
+            return account
+    
+    async def get_account_async(self) -> KiroAuthManager:
+        """
+        Get an auth manager asynchronously (thread-safe for round-robin).
+        
+        Returns:
+            KiroAuthManager instance
+        """
+        if not self.accounts:
+            raise ValueError("No accounts configured in load balancer")
+        
+        if self.strategy == "random":
+            import random
+            return random.choice(self.accounts)
+        
+        elif self.strategy == "failover":
+            return self.accounts[0]
+        
+        else:  # round_robin (default)
+            async with self._lock:
+                account = self.accounts[self.round_robin_index]
+                self.round_robin_index = (self.round_robin_index + 1) % len(self.accounts)
+                return account
+    
+    def failover_to_next(self, failed_account: KiroAuthManager) -> KiroAuthManager:
+        """
+        Move failed account to end and return next account (for failover strategy).
+        
+        Args:
+            failed_account: The account that failed
+            
+        Returns:
+            Next KiroAuthManager instance
+        """
+        if len(self.accounts) <= 1:
+            return failed_account
+        
+        try:
+            self.accounts.remove(failed_account)
+            self.accounts.append(failed_account)
+            logger.info("Failed account moved to end of queue")
+        except ValueError:
+            pass
+        
+        return self.accounts[0]
+    
+    @property
+    def account_count(self) -> int:
+        """Return number of configured accounts."""
+        return len(self.accounts)

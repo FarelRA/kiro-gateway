@@ -146,6 +146,24 @@ KIRO_CREDS_FILE: str = str(Path(_raw_creds_file)) if _raw_creds_file else ""
 _raw_cli_db_file = _get_raw_env_value("KIRO_CLI_DB_FILE") or os.getenv("KIRO_CLI_DB_FILE", "")
 KIRO_CLI_DB_FILE: str = str(Path(_raw_cli_db_file)) if _raw_cli_db_file else ""
 
+# Multi-account configuration (JSON array of account configurations)
+# Each account can use different credential types (refresh_token, creds_file, sqlite_db)
+# Supports mixing different account types (Kiro Desktop, AWS SSO OIDC, etc.)
+#
+# Example JSON format:
+# [
+#   {"type": "refresh_token", "refresh_token": "token1", "region": "us-east-1"},
+#   {"type": "creds_file", "creds_file": "/path/to/creds.json"},
+#   {"type": "sqlite_db", "sqlite_db": "~/.local/share/kiro-cli/data.sqlite3"}
+# ]
+#
+# Load balancing strategies:
+#   - "round_robin": Cycle through accounts sequentially
+#   - "random": Randomly select an account
+#   - "failover": Use first account, failover to next on error
+KIRO_ACCOUNTS_JSON: str = os.getenv("KIRO_ACCOUNTS_JSON", "")
+KIRO_LOAD_BALANCING_STRATEGY: str = os.getenv("KIRO_LOAD_BALANCING_STRATEGY", "round_robin")
+
 # ==================================================================================================
 # Kiro API URL Templates
 # ==================================================================================================
