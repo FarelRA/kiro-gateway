@@ -44,6 +44,7 @@ from kiro.config import (
     get_kiro_api_host,
     get_kiro_q_host,
     get_aws_sso_oidc_url,
+    KIRO_CLI_DB_AUTO_CLEANUP,
 )
 from kiro.utils import get_machine_fingerprint
 
@@ -295,6 +296,10 @@ class KiroAuthManager:
             conn.close()
             logger.info(f"Credentials loaded from SQLite database: {db_path}")
             
+            # Initial cleanup if enabled
+            if KIRO_CLI_DB_AUTO_CLEANUP:
+                self.cleanup_sqlite_db(db_path)
+            
         except sqlite3.Error as e:
             logger.error(f"SQLite error loading credentials: {e}")
         except json.JSONDecodeError as e:
@@ -520,6 +525,58 @@ class KiroAuthManager:
             logger.error(f"SQLite error saving credentials: {e}")
         except Exception as e:
             logger.error(f"Error saving credentials to SQLite: {e}")
+        
+        # Auto cleanup if enabled
+        if KIRO_CLI_DB_AUTO_CLEANUP:
+            self.cleanup_sqlite_db(self._sqlite_db)
+
+    @staticmethod
+    def cleanup_sqlite_db(db_path: str) -> bool:
+        """
+        Cleanup SQLite database by removing all tables except auth_kv.
+        
+        This removes all data unrelated to authentication, keeping only
+        the auth_kv table with credentials.
+        
+        Args:
+            db_path: Path to SQLite database file
+            
+        Returns:
+            True if cleanup was successful, False otherwise
+        """
+        try:
+            path = Path(db_path).expanduser()
+            if not path.exists():
+                logger.warning(f"SQLite database not found: {db_path}")
+                return False
+            
+            conn = sqlite3.connect(str(path))
+            cursor = conn.cursor()
+            
+            # Get all table names
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name != 'sqlite_sequence'")
+            tables = cursor.fetchall()
+            
+            dropped = []
+            for (table_name,) in tables:
+                if table_name != 'auth_kv':
+                    cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+                    dropped.append(table_name)
+            
+            conn.commit()
+            conn.close()
+            
+            if dropped:
+                logger.info(f"Cleaned up SQLite database: dropped tables {dropped}")
+            
+            return True
+            
+        except sqlite3.Error as e:
+            logger.error(f"SQLite error during cleanup: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Error cleaning up SQLite database: {e}")
+            return False
     
     def is_token_expiring_soon(self) -> bool:
         """

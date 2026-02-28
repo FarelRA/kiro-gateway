@@ -146,6 +146,13 @@ KIRO_CREDS_FILE: str = str(Path(_raw_creds_file)) if _raw_creds_file else ""
 _raw_cli_db_file = _get_raw_env_value("KIRO_CLI_DB_FILE") or os.getenv("KIRO_CLI_DB_FILE", "")
 KIRO_CLI_DB_FILE: str = str(Path(_raw_cli_db_file)) if _raw_cli_db_file else ""
 
+# Enable automatic cleanup of kiro-cli SQLite database.
+# When enabled, the gateway will periodically clean up the database by removing
+# all tables except auth_kv when saving credentials.
+# This keeps the database lean by removing kiro-cli internal data.
+# Default: false (disabled)
+KIRO_CLI_DB_AUTO_CLEANUP: bool = os.getenv("KIRO_CLI_DB_AUTO_CLEANUP", "").lower() in ("true", "1", "yes")
+
 # Multi-account configuration (JSON array of account configurations)
 # Each account can use different credential types (refresh_token, creds_file, sqlite_db)
 # Supports mixing different account types (Kiro Desktop, AWS SSO OIDC, etc.)
