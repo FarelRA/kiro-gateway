@@ -219,6 +219,7 @@ def validate_configuration() -> None:
     env_file = Path(".env")
     
     # Check for credentials (from .env or environment variables)
+    has_accounts_json = bool(KIRO_ACCOUNTS_JSON)
     has_refresh_token = bool(REFRESH_TOKEN)
     has_creds_file = bool(KIRO_CREDS_FILE)
     has_cli_db = bool(KIRO_CLI_DB_FILE)
@@ -238,7 +239,7 @@ def validate_configuration() -> None:
             logger.warning(f"KIRO_CLI_DB_FILE not found: {KIRO_CLI_DB_FILE}")
     
     # If no credentials found, show helpful error
-    if not has_refresh_token and not has_creds_file and not has_cli_db:
+    if not has_accounts_json and not has_refresh_token and not has_creds_file and not has_cli_db:
         if not env_file.exists():
             # No .env file and no environment variables
             errors.append(
