@@ -350,7 +350,9 @@ async def lifespan(app: FastAPI):
         logger.info(f"Multi-account load balancer initialized with {app.state.load_balancer.account_count} accounts")
         
         # Get first account for model loading
-        auth_manager = await app.state.load_balancer.get_account_async()
+        auth_manager = await app.state.load_balancer.get_healthy_account_async()
+        if auth_manager is None:
+            raise RuntimeError("No healthy accounts available in load balancer")
     else:
         app.state.load_balancer = None
         app.state.auth_manager = KiroAuthManager(
