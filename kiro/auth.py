@@ -30,6 +30,7 @@ Manages the lifecycle of access tokens:
 import asyncio
 import json
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 from pathlib import Path
@@ -923,6 +924,63 @@ class KiroAuthManager:
         """Authentication type (KIRO_DESKTOP or AWS_SSO_OIDC)."""
         return self._auth_type
 
+
+@dataclass
+class AccountHealth:
+    """
+    Tracks health status of a Kiro account.
+    
+    Monitors failures, quota exhaustion, and cooldown periods to enable
+    automatic fallback to healthy accounts.
+    
+    Attributes:
+        account: The KiroAuthManager instance being tracked
+        failure_count: Number of consecutive failures
+        last_failure_time: Timestamp of last failure (None if healthy)
+        is_quota_exceeded: Whether account hit monthly quota limit
+        cooldown_until: Timestamp when account can be retried (None if no cooldown)
+    """
+    account: "KiroAuthManager"
+    failure_count: int = 0
+    last_failure_time: Optional[datetime] = None
+    is_quota_exceeded: bool = False
+    cooldown_until: Optional[datetime] = None
+    
+    def is_healthy(self) -> bool:
+        """Check if account is healthy and can be used."""
+        # Check if still in cooldown period (includes quota cooldown)
+        if self.cooldown_until and datetime.now(timezone.utc) < self.cooldown_until:
+            return False
+        
+        return True
+    
+    def mark_failed(self, is_quota_error: bool = False) -> None:
+        """
+        Mark account as failed and apply cooldown.
+        
+        Args:
+            is_quota_error: Whether failure was due to quota exhaustion
+        """
+        self.failure_count += 1
+        self.last_failure_time = datetime.now(timezone.utc)
+        
+        if is_quota_error:
+            self.is_quota_exceeded = True
+            # Quota errors: 1 day cooldown for automatic recovery
+            self.cooldown_until = datetime.now(timezone.utc) + timedelta(days=1)
+        else:
+            # Apply exponential backoff: 30s, 60s, 120s, 240s (max 4 minutes)
+            cooldown_seconds = min(30 * (2 ** (self.failure_count - 1)), 240)
+            self.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=cooldown_seconds)
+    
+    def mark_success(self) -> None:
+        """Reset failure tracking after successful request."""
+        self.failure_count = 0
+        self.last_failure_time = None
+        self.cooldown_until = None
+        self.is_quota_exceeded = False
+
+
 class AccountLoadBalancer:
     """
     Load balancer for multiple Kiro accounts.
@@ -961,6 +1019,7 @@ class AccountLoadBalancer:
             default_region: Default AWS region if not specified in account config
         """
         self.accounts: list[KiroAuthManager] = []
+        self.account_health: dict[KiroAuthManager, AccountHealth] = {}
         self.strategy = strategy
         self.round_robin_index = 0
         self._lock = asyncio.Lock()
@@ -1011,6 +1070,7 @@ class AccountLoadBalancer:
                     continue
                 
                 self.accounts.append(auth_manager)
+                self.account_health[auth_manager] = AccountHealth(account=auth_manager)
                 logger.info(f"Account {i+1} loaded: type={account_type}, region={region}")
                 
             except Exception as e:
@@ -1018,81 +1078,139 @@ class AccountLoadBalancer:
         
         logger.info(f"Load balancer initialized with {len(self.accounts)} accounts, strategy={self.strategy}")
     
-    def get_account(self) -> KiroAuthManager:
+    
+    def get_healthy_account(self) -> Optional[KiroAuthManager]:
         """
-        Get an auth manager based on load balancing strategy.
+        Get a healthy account based on load balancing strategy.
+        
+        Automatically recovers accounts from cooldown and skips unhealthy accounts.
         
         Returns:
-            KiroAuthManager instance
-            
-        Raises:
-            ValueError: If no accounts are configured
+            Healthy KiroAuthManager instance, or None if all accounts are unhealthy
         """
         if not self.accounts:
-            raise ValueError("No accounts configured in load balancer")
+            return None
+        
+        # Recover accounts from cooldown
+        self._recover_accounts()
+        
+        # Get list of healthy accounts
+        healthy_accounts = [acc for acc in self.accounts if self.account_health[acc].is_healthy()]
+        
+        if not healthy_accounts:
+            logger.error("No healthy accounts available")
+            return None
         
         if self.strategy == "random":
             import random
-            return random.choice(self.accounts)
+            return random.choice(healthy_accounts)
         
         elif self.strategy == "failover":
-            return self.accounts[0]
+            # Return first healthy account
+            return healthy_accounts[0]
         
         else:  # round_robin (default)
-            async def get_next():
-                async with self._lock:
-                    account = self.accounts[self.round_robin_index]
-                    self.round_robin_index = (self.round_robin_index + 1) % len(self.accounts)
+            # Find next healthy account starting from current index
+            attempts = 0
+            while attempts < len(self.accounts):
+                account = self.accounts[self.round_robin_index]
+                self.round_robin_index = (self.round_robin_index + 1) % len(self.accounts)
+                
+                if self.account_health[account].is_healthy():
                     return account
-            # For sync context, use simple round-robin without lock
-            account = self.accounts[self.round_robin_index]
-            self.round_robin_index = (self.round_robin_index + 1) % len(self.accounts)
-            return account
+                
+                attempts += 1
+            
+            return None
     
-    async def get_account_async(self) -> KiroAuthManager:
+    async def get_healthy_account_async(self) -> Optional[KiroAuthManager]:
         """
-        Get an auth manager asynchronously (thread-safe for round-robin).
+        Get a healthy account asynchronously (thread-safe for round-robin).
         
         Returns:
-            KiroAuthManager instance
+            Healthy KiroAuthManager instance, or None if all accounts are unhealthy
         """
         if not self.accounts:
-            raise ValueError("No accounts configured in load balancer")
+            return None
+        
+        # Recover accounts from cooldown
+        self._recover_accounts()
+        
+        # Get list of healthy accounts
+        healthy_accounts = [acc for acc in self.accounts if self.account_health[acc].is_healthy()]
+        
+        if not healthy_accounts:
+            logger.error("No healthy accounts available")
+            return None
         
         if self.strategy == "random":
             import random
-            return random.choice(self.accounts)
+            return random.choice(healthy_accounts)
         
         elif self.strategy == "failover":
-            return self.accounts[0]
+            return healthy_accounts[0]
         
         else:  # round_robin (default)
             async with self._lock:
-                account = self.accounts[self.round_robin_index]
-                self.round_robin_index = (self.round_robin_index + 1) % len(self.accounts)
-                return account
+                # Find next healthy account starting from current index
+                attempts = 0
+                while attempts < len(self.accounts):
+                    account = self.accounts[self.round_robin_index]
+                    self.round_robin_index = (self.round_robin_index + 1) % len(self.accounts)
+                    
+                    if self.account_health[account].is_healthy():
+                        return account
+                    
+                    attempts += 1
+                
+                return None
     
-    def failover_to_next(self, failed_account: KiroAuthManager) -> KiroAuthManager:
+    def mark_account_failed(self, account: KiroAuthManager, is_quota_error: bool = False) -> None:
         """
-        Move failed account to end and return next account (for failover strategy).
+        Mark an account as failed and apply cooldown.
         
         Args:
-            failed_account: The account that failed
-            
-        Returns:
-            Next KiroAuthManager instance
+            account: The account that failed
+            is_quota_error: Whether failure was due to quota exhaustion
         """
-        if len(self.accounts) <= 1:
-            return failed_account
+        if account not in self.account_health:
+            logger.warning(f"Attempted to mark unknown account as failed")
+            return
         
-        try:
-            self.accounts.remove(failed_account)
-            self.accounts.append(failed_account)
-            logger.info("Failed account moved to end of queue")
-        except ValueError:
-            pass
+        health = self.account_health[account]
+        health.mark_failed(is_quota_error)
         
-        return self.accounts[0]
+        if is_quota_error:
+            logger.error(f"Account marked as quota exceeded (permanently disabled)")
+        else:
+            cooldown_seconds = (health.cooldown_until - datetime.now(timezone.utc)).total_seconds() if health.cooldown_until else 0
+            logger.warning(f"Account marked as failed (failures: {health.failure_count}, cooldown: {cooldown_seconds:.0f}s)")
+    
+    def mark_account_success(self, account: KiroAuthManager) -> None:
+        """
+        Mark an account as successful and reset failure tracking.
+        
+        Args:
+            account: The account that succeeded
+        """
+        if account not in self.account_health:
+            return
+        
+        health = self.account_health[account]
+        if health.failure_count > 0 or health.is_quota_exceeded:
+            logger.info(f"Account recovered (previous failures: {health.failure_count}, quota_exceeded: {health.is_quota_exceeded})")
+        health.mark_success()
+    
+    def _recover_accounts(self) -> None:
+        """Check and recover accounts from cooldown period (including quota cooldown)."""
+        now = datetime.now(timezone.utc)
+        for account, health in self.account_health.items():
+            if health.cooldown_until and now >= health.cooldown_until:
+                if health.is_quota_exceeded:
+                    logger.info(f"Account quota cooldown expired, marking as available")
+                else:
+                    logger.info(f"Account recovered from cooldown (failures: {health.failure_count})")
+                health.cooldown_until = None
     
     @property
     def account_count(self) -> int:

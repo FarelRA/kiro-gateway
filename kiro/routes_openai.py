@@ -175,7 +175,9 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
     
     # Get auth manager from load balancer or single auth manager
     if load_balancer:
-        auth_manager = await load_balancer.get_account_async()
+        auth_manager = await load_balancer.get_healthy_account_async()
+        if auth_manager is None:
+            raise HTTPException(status_code=503, detail="No healthy accounts available")
     else:
         auth_manager: KiroAuthManager = request.app.state.auth_manager
     
@@ -269,73 +271,127 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
     url = f"{auth_manager.api_host}/generateAssistantResponse"
     logger.debug(f"Kiro API URL: {url}")
     
-    if request_data.stream:
-        # Streaming mode: per-request client prevents orphaned connections
-        # when network interface changes (VPN disconnect/reconnect)
-        http_client = KiroHttpClient(auth_manager, shared_client=None)
-    else:
-        # Non-streaming mode: shared client for efficient connection reuse
-        shared_client = request.app.state.http_client
-        http_client = KiroHttpClient(auth_manager, shared_client=shared_client)
-    try:
-        # Make request to Kiro API (for both streaming and non-streaming modes)
-        # Important: we wait for Kiro response BEFORE returning StreamingResponse,
-        # so that 200 OK means Kiro accepted the request and started responding
-        response = await http_client.request_with_retry(
-            "POST",
-            url,
-            kiro_payload,
-            stream=True
-        )
-        
-        if response.status_code != 200:
-            try:
-                error_content = await response.aread()
-            except Exception:
-                error_content = b"Unknown error"
+    # Retry with fallback for multi-account setups
+    max_account_retries = load_balancer.account_count if load_balancer else 1
+    last_error = None
+    
+    for attempt in range(max_account_retries):
+        try:
+            if request_data.stream:
+                # Streaming mode: per-request client prevents orphaned connections
+                # when network interface changes (VPN disconnect/reconnect)
+                http_client = KiroHttpClient(auth_manager, shared_client=None)
+            else:
+                # Non-streaming mode: shared client for efficient connection reuse
+                shared_client = request.app.state.http_client
+                http_client = KiroHttpClient(auth_manager, shared_client=shared_client)
             
-            await http_client.close()
-            error_text = error_content.decode('utf-8', errors='replace')
-            
-            # Try to parse JSON response from Kiro to extract error message
-            error_message = error_text
-            try:
-                error_json = json.loads(error_text)
-                # Enhance Kiro API errors with user-friendly messages
-                from kiro.kiro_errors import enhance_kiro_error
-                error_info = enhance_kiro_error(error_json)
-                error_message = error_info.user_message
-                # Log original error for debugging
-                logger.debug(f"Original Kiro error: {error_info.original_message} (reason: {error_info.reason})")
-            except (json.JSONDecodeError, KeyError):
-                pass
-            
-            # Log access log for error (before flush, so it gets into app_logs)
-            logger.warning(
-                f"HTTP {response.status_code} - POST /v1/chat/completions - {error_message[:100]}"
+            # Make request to Kiro API (for both streaming and non-streaming modes)
+            # Important: we wait for Kiro response BEFORE returning StreamingResponse,
+            # so that 200 OK means Kiro accepted the request and started responding
+            response = await http_client.request_with_retry(
+                "POST",
+                url,
+                kiro_payload,
+                stream=True
             )
             
-            # Flush debug logs on error ("errors" mode)
-            if debug_logger:
-                debug_logger.flush_on_error(response.status_code, error_message)
-            
-            # Return error in OpenAI API format
-            return JSONResponse(
-                status_code=response.status_code,
-                content={
-                    "error": {
-                        "message": error_message,
-                        "type": "kiro_api_error",
-                        "code": response.status_code
+            if response.status_code != 200:
+                try:
+                    error_content = await response.aread()
+                except Exception:
+                    error_content = b"Unknown error"
+                
+                await http_client.close()
+                error_text = error_content.decode('utf-8', errors='replace')
+                
+                # Try to parse JSON response from Kiro to extract error message
+                error_message = error_text
+                is_quota_error = False
+                try:
+                    error_json = json.loads(error_text)
+                    # Enhance Kiro API errors with user-friendly messages
+                    from kiro.kiro_errors import enhance_kiro_error
+                    error_info = enhance_kiro_error(error_json)
+                    error_message = error_info.user_message
+                    is_quota_error = error_info.reason == "MONTHLY_REQUEST_COUNT"
+                    # Log original error for debugging
+                    logger.debug(f"Original Kiro error: {error_info.original_message} (reason: {error_info.reason})")
+                except (json.JSONDecodeError, KeyError):
+                    pass
+                
+                # Check if we should retry with another account
+                if load_balancer and (is_quota_error or response.status_code >= 500):
+                    load_balancer.mark_account_failed(auth_manager, is_quota_error)
+                    
+                    if attempt < max_account_retries - 1:
+                        # Try next healthy account
+                        auth_manager = await load_balancer.get_healthy_account_async()
+                        if auth_manager is None:
+                            logger.error("No more healthy accounts available for retry")
+                            break
+                        
+                        logger.info(f"Retrying with next account (attempt {attempt + 2}/{max_account_retries})")
+                        url = f"{auth_manager.api_host}/generateAssistantResponse"
+                        continue
+                
+                # Log access log for error (before flush, so it gets into app_logs)
+                logger.warning(
+                    f"HTTP {response.status_code} - POST /v1/chat/completions - {error_message[:100]}"
+                )
+                
+                # Flush debug logs on error ("errors" mode)
+                if debug_logger:
+                    debug_logger.flush_on_error(response.status_code, error_message)
+                
+                # Return error in OpenAI API format
+                return JSONResponse(
+                    status_code=response.status_code,
+                    content={
+                        "error": {
+                            "message": error_message,
+                            "type": "kiro_api_error",
+                            "code": response.status_code
+                        }
                     }
-                }
-            )
-        
-        # Prepare data for fallback token counting
-        # Convert Pydantic models to dicts for tokenizer
-        messages_for_tokenizer = [msg.model_dump() for msg in request_data.messages]
-        tools_for_tokenizer = [tool.model_dump() for tool in request_data.tools] if request_data.tools else None
-        
+                )
+            
+            # Success! Mark account as healthy
+            if load_balancer:
+                load_balancer.mark_account_success(auth_manager)
+            
+            break  # Exit retry loop on success
+            
+        except Exception as e:
+            last_error = e
+            logger.error(f"Request failed: {e}")
+            
+            # Mark account as failed and try next one
+            if load_balancer and attempt < max_account_retries - 1:
+                load_balancer.mark_account_failed(auth_manager, is_quota_error=False)
+                auth_manager = await load_balancer.get_healthy_account_async()
+                
+                if auth_manager is None:
+                    logger.error("No more healthy accounts available for retry")
+                    break
+                
+                logger.info(f"Retrying with next account after exception (attempt {attempt + 2}/{max_account_retries})")
+                url = f"{auth_manager.api_host}/generateAssistantResponse"
+                continue
+            
+            # Re-raise if no more retries
+            raise
+    
+    # If we exhausted all retries, raise the last error
+    if last_error:
+        raise last_error
+    
+    # Prepare data for fallback token counting
+    # Convert Pydantic models to dicts for tokenizer
+    messages_for_tokenizer = [msg.model_dump() for msg in request_data.messages]
+    tools_for_tokenizer = [tool.model_dump() for tool in request_data.tools] if request_data.tools else None
+    
+    try:
         if request_data.stream:
             # Streaming mode
             async def stream_wrapper():
@@ -410,7 +466,8 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
             return JSONResponse(content=openai_response)
     
     except HTTPException as e:
-        await http_client.close()
+        if 'http_client' in locals():
+            await http_client.close()
         # Log access log for HTTP error
         logger.error(f"HTTP {e.status_code} - POST /v1/chat/completions - {e.detail}")
         # Flush debug logs on HTTP error ("errors" mode)
@@ -418,7 +475,8 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
             debug_logger.flush_on_error(e.status_code, str(e.detail))
         raise
     except Exception as e:
-        await http_client.close()
+        if 'http_client' in locals():
+            await http_client.close()
         logger.error(f"Internal error: {e}", exc_info=True)
         # Log access log for internal error
         logger.error(f"HTTP 500 - POST /v1/chat/completions - {str(e)[:100]}")
