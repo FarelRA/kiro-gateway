@@ -155,7 +155,7 @@ class TestConvertOpenAIMessagesToUnified:
     def test_handles_empty_tool_content(self):
         """
         What it does: Verifies handling of empty tool content.
-        Purpose: Ensure empty content is replaced with "(empty result)".
+        Purpose: Ensure empty content is preserved as empty string.
         """
         print("Setup: Tool message with empty content...")
         messages = [
@@ -735,7 +735,7 @@ class TestBuildKiroPayload:
     def test_handles_assistant_as_last_message(self):
         """
         What it does: Verifies handling of assistant as last message.
-        Purpose: Ensure "Continue" message is created.
+        Purpose: Ensure synthetic user message is created.
         """
         print("Setup: Request with assistant at the end...")
         request = ChatCompletionRequest(
@@ -773,8 +773,8 @@ class TestBuildKiroPayload:
     
     def test_uses_continue_for_empty_content(self):
         """
-        What it does: Verifies using "Continue" for empty content.
-        Purpose: Ensure empty message is replaced with "Continue".
+        What it does: Verifies handling of empty content.
+        Purpose: Ensure empty message is preserved as empty string.
         """
         print("Setup: Request with empty content...")
         request = ChatCompletionRequest(
@@ -983,7 +983,7 @@ class TestToolMessageHandling:
     def test_tool_message_with_empty_content(self):
         """
         What it does: Verifies tool message with empty content.
-        Purpose: Ensure empty result is replaced with "(empty result)".
+        Purpose: Ensure empty result is preserved as empty string.
         """
         print("Setup: Tool message with empty content...")
         messages = [

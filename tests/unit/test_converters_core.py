@@ -176,7 +176,7 @@ class TestExtractTextContent:
         
         This is the critical test for Issue #46/#50 - the original bug was that
         Pydantic TextContentBlock objects weren't being handled, causing MCP tool
-        results to return "(empty result)" instead of actual data.
+        results to return empty strings instead of actual data.
         """
         from kiro.models_anthropic import TextContentBlock
         
@@ -1665,7 +1665,7 @@ class TestEnsureAlternatingRoles:
     Tests for ensure_alternating_roles function.
     
     This function ensures alternating user/assistant roles by inserting synthetic
-    assistant messages with "(empty)" content between consecutive user messages.
+    assistant messages with empty content between consecutive user messages.
     This is part of the fix for Issue #64 where multiple 'developer' roles
     (converted to 'user') create consecutive userInputMessage entries.
     """
@@ -3878,8 +3878,8 @@ class TestBuildKiroHistory:
     
     def test_adds_empty_placeholder_for_empty_user_content(self):
         """
-        What it does: Verifies that "(empty)" placeholder is added for user messages with empty content.
-        Purpose: Ensure Kiro API receives non-empty content in history.
+        What it does: Verifies that empty content is preserved for user messages with empty content.
+        Purpose: Ensure Kiro API handles empty content in history.
         
         This is a fallback test for issue #20 - ensures any edge case with empty content
         is handled even if strip_all_tool_content didn't add a placeholder.
@@ -3897,8 +3897,8 @@ class TestBuildKiroHistory:
     
     def test_adds_empty_placeholder_for_empty_assistant_content(self):
         """
-        What it does: Verifies that "(empty)" placeholder is added for assistant messages with empty content.
-        Purpose: Ensure Kiro API receives non-empty content in history.
+        What it does: Verifies that empty content is preserved for assistant messages with empty content.
+        Purpose: Ensure Kiro API handles empty content in history.
         
         This is a fallback test for issue #20 - ensures any edge case with empty content
         is handled even if strip_all_tool_content didn't add a placeholder.
@@ -3916,8 +3916,8 @@ class TestBuildKiroHistory:
     
     def test_adds_empty_placeholder_for_none_user_content(self):
         """
-        What it does: Verifies that "(empty)" placeholder is added for user messages with None content.
-        Purpose: Ensure Kiro API receives non-empty content when content is None.
+        What it does: Verifies that empty content is used for user messages with None content.
+        Purpose: Ensure Kiro API handles None content properly.
         """
         print("Setup: User message with None content...")
         messages = [UnifiedMessage(role="user", content=None)]
@@ -3927,13 +3927,13 @@ class TestBuildKiroHistory:
         
         print(f"Result: {result}")
         print(f"Content: '{result[0]['userInputMessage']['content']}'")
-        print("Checking that '(empty)' placeholder is added...")
+        print("Checking that empty content is preserved...")
         assert result[0]["userInputMessage"]["content"] == ""
     
     def test_adds_empty_placeholder_for_none_assistant_content(self):
         """
-        What it does: Verifies that "(empty)" placeholder is added for assistant messages with None content.
-        Purpose: Ensure Kiro API receives non-empty content when content is None.
+        What it does: Verifies that empty content is used for assistant messages with None content.
+        Purpose: Ensure Kiro API handles None content properly.
         """
         print("Setup: Assistant message with None content...")
         messages = [UnifiedMessage(role="assistant", content=None)]
@@ -3943,7 +3943,7 @@ class TestBuildKiroHistory:
         
         print(f"Result: {result}")
         print(f"Content: '{result[0]['assistantResponseMessage']['content']}'")
-        print("Checking that '(empty)' placeholder is added...")
+        print("Checking that empty content is preserved...")
         assert result[0]["assistantResponseMessage"]["content"] == ""
     
     def test_preserves_non_empty_content_in_history(self):
@@ -4465,7 +4465,7 @@ class TestStripAllToolContent:
                 content="",
                 tool_calls=[{"id": "call_1", "type": "function", "function": {"name": "tool", "arguments": "{}"}}]
             ),  # Has tool content
-            UnifiedMessage(role="user", content="Continue"),  # No tool content
+            UnifiedMessage(role="user", content=""),  # No tool content
         ]
         
         print("Action: Stripping tool content...")
@@ -4476,7 +4476,7 @@ class TestStripAllToolContent:
         assert result[0].content == "Hello"
         assert result[0].tool_calls is None
         assert result[1].tool_calls is None  # Stripped
-        assert result[2].content == "Continue"
+        assert result[2].content == ""
         assert result[2].tool_calls is None
         assert had_content is True
     
@@ -5484,7 +5484,7 @@ class TestBuildKiroPayloadIssue20:
                     "content": "Tool executed"
                 }]
             ),
-            UnifiedMessage(role="user", content="Continue")
+            UnifiedMessage(role="user", content="")
         ]
         
         tools = [UnifiedTool(
@@ -5535,7 +5535,7 @@ class TestBuildKiroPayloadIssue20:
                     "function": {"name": "some_tool", "arguments": "{}"}
                 }]
             ),
-            UnifiedMessage(role="user", content="Continue")
+            UnifiedMessage(role="user", content="")
         ]
         
         print("Action: Building Kiro payload with empty tools list...")

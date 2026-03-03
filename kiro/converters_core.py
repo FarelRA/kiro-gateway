@@ -693,7 +693,7 @@ def extract_tool_results_from_content(content: Any) -> List[Dict[str, Any]]:
         for item in content:
             if isinstance(item, dict) and item.get("type") == "tool_result":
                 tool_results.append({
-                    "content": [{"text": extract_text_content(item.get("content", "")) or "."}],
+                    "content": [{"text": extract_text_content(item.get("content", "")) or ""}],
                     "status": "success",
                     "toolUseId": item.get("tool_use_id", "")
                 })
@@ -1190,7 +1190,7 @@ def ensure_alternating_roles(messages: List[UnifiedMessage]) -> List[UnifiedMess
     
     Kiro API requires alternating userInputMessage and assistantResponseMessage.
     When consecutive user messages are detected, synthetic assistant messages
-    with "." placeholder are inserted between them to maintain alternation.
+    with empty content are inserted between them to maintain alternation.
     
     This fixes multiple unknown roles (converted to user)
     create consecutive userInputMessage entries that violate Kiro API requirements.
