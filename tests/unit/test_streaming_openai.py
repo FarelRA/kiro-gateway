@@ -411,12 +411,11 @@ class TestStreamingOpenaiThinkingContent:
         
         with patch('kiro.streaming_openai.parse_kiro_stream', mock_parse_kiro_stream):
             with patch('kiro.streaming_openai.parse_bracket_tool_calls', return_value=[]):
-                with patch('kiro.streaming_openai.FAKE_REASONING_HANDLING', 'as_reasoning_content'):
-                    async for chunk in stream_kiro_to_openai(
-                        mock_http_client, mock_response, "claude-sonnet-4",
-                        mock_model_cache, mock_auth_manager
-                    ):
-                        chunks.append(chunk)
+                async for chunk in stream_kiro_to_openai(
+                    mock_http_client, mock_response, "claude-sonnet-4",
+                    mock_model_cache, mock_auth_manager
+                ):
+                    chunks.append(chunk)
         
         print(f"Received {len(chunks)} chunks")
         
@@ -429,8 +428,8 @@ class TestStreamingOpenaiThinkingContent:
     @pytest.mark.asyncio
     async def test_yields_thinking_as_content_when_configured(self, mock_http_client, mock_response, mock_model_cache, mock_auth_manager):
         """
-        What it does: Yields thinking as content when configured.
-        Goal: Verify thinking content handling.
+        What it does: Verifies thinking is always yielded as reasoning_content.
+        Goal: Verify unified thinking content handling.
         """
         print("Setup: Mock stream with thinking content...")
         
@@ -438,24 +437,23 @@ class TestStreamingOpenaiThinkingContent:
             yield KiroEvent(type="thinking", thinking_content="Let me think...")
             yield KiroEvent(type="content", content="Here is my answer")
         
-        print("Action: Streaming to OpenAI format with content mode...")
+        print("Action: Streaming to OpenAI format...")
         chunks = []
         
         with patch('kiro.streaming_openai.parse_kiro_stream', mock_parse_kiro_stream):
             with patch('kiro.streaming_openai.parse_bracket_tool_calls', return_value=[]):
-                with patch('kiro.streaming_openai.FAKE_REASONING_HANDLING', 'include_as_text'):
-                    async for chunk in stream_kiro_to_openai(
-                        mock_http_client, mock_response, "claude-sonnet-4",
-                        mock_model_cache, mock_auth_manager
-                    ):
-                        chunks.append(chunk)
+                async for chunk in stream_kiro_to_openai(
+                    mock_http_client, mock_response, "claude-sonnet-4",
+                    mock_model_cache, mock_auth_manager
+                ):
+                    chunks.append(chunk)
         
         print(f"Received {len(chunks)} chunks")
         
-        # Should have thinking as content
-        content_chunks = [c for c in chunks if '"content"' in c and "Let me think" in c]
-        assert len(content_chunks) >= 1
-        print("✓ Thinking yielded as content")
+        # Should have reasoning_content (unified approach)
+        reasoning_chunks = [c for c in chunks if '"reasoning_content"' in c]
+        assert len(reasoning_chunks) >= 1
+        print("✓ Thinking yielded as reasoning_content")
 
 
 # ==================================================================================================
@@ -883,11 +881,10 @@ class TestCollectStreamResponse:
         
         with patch('kiro.streaming_openai.parse_kiro_stream', mock_parse_kiro_stream):
             with patch('kiro.streaming_openai.parse_bracket_tool_calls', return_value=[]):
-                with patch('kiro.streaming_openai.FAKE_REASONING_HANDLING', 'as_reasoning_content'):
-                    result = await collect_stream_response(
-                        mock_http_client, mock_response, "claude-sonnet-4",
-                        mock_model_cache, mock_auth_manager
-                    )
+                result = await collect_stream_response(
+                    mock_http_client, mock_response, "claude-sonnet-4",
+                    mock_model_cache, mock_auth_manager
+                )
         
         print(f"Result: {result}")
         

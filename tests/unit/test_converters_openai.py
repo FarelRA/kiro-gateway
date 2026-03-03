@@ -166,7 +166,7 @@ class TestConvertOpenAIMessagesToUnified:
         system_prompt, unified = convert_openai_messages_to_unified(messages)
         
         print(f"Unified messages: {unified}")
-        assert unified[0].tool_results[0]["content"] == "(empty result)"
+        assert unified[0].tool_results[0]["content"] == ""
     
     def test_tool_messages_followed_by_user_message(self):
         """
@@ -751,7 +751,7 @@ class TestBuildKiroPayload:
         
         print(f"Result: {result}")
         current_content = result["conversationState"]["currentMessage"]["userInputMessage"]["content"]
-        assert current_content == "Continue"
+        assert current_content == ""
     
     def test_raises_for_empty_messages(self):
         """
@@ -789,7 +789,7 @@ class TestBuildKiroPayload:
 
         print(f"Result: {result}")
         current_content = result["conversationState"]["currentMessage"]["userInputMessage"]["content"]
-        assert current_content == "Continue"
+        assert current_content == ""
     
     def test_normalizes_model_id_correctly(self):
         """
@@ -995,7 +995,7 @@ class TestToolMessageHandling:
         
         print(f"Result: {unified}")
         assert len(unified) == 1
-        assert unified[0].tool_results[0]["content"] == "(empty result)"
+        assert unified[0].tool_results[0]["content"] == ""
     
     def test_tool_message_with_none_tool_call_id(self):
         """

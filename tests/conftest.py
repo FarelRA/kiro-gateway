@@ -386,11 +386,50 @@ def block_all_network_calls():
 # =============================================================================
 
 @pytest.fixture
-def clean_app():
+def mock_successful_kiro_response():
+    """
+    Mocks a successful Kiro API response for route tests.
+    Returns a mock response that simulates a successful chat completion.
+    """
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.headers = {"content-type": "application/json"}
+    mock_response.json.return_value = {
+        "completion": "Hello! How can I help you today?",
+        "stop_reason": "end_turn"
+    }
+    
+    # Mock async iteration for streaming
+    async def mock_aiter_bytes():
+        yield b'data: {"completion": "Hello"}\n\n'
+        yield b'data: {"completion": "!"}\n\n'
+        yield b'data: [DONE]\n\n'
+    
+    mock_response.aiter_bytes = mock_aiter_bytes
+    return mock_response
+
+
+@pytest.fixture
+def clean_app(mock_env_vars, monkeypatch, mock_successful_kiro_response):
     """
     Returns a "clean" application instance for each test.
+    Requires mock_env_vars to ensure proper environment setup.
+    Mocks the model loading during lifespan and Kiro API calls.
     """
     print("Importing application for test...")
+    
+    # Mock the auth manager's get_access_token method to return a valid token
+    async def mock_get_access_token(self):
+        return "mock_access_token_for_tests"
+    
+    # Mock the HTTP client's request_with_retry to return successful responses
+    async def mock_request_with_retry(self, *args, **kwargs):
+        return mock_successful_kiro_response
+    
+    # Patch before importing the app
+    monkeypatch.setattr('kiro.auth.KiroAuthManager.get_access_token', mock_get_access_token)
+    monkeypatch.setattr('kiro.http_client.KiroHttpClient.request_with_retry', mock_request_with_retry)
+    
     from main import app
     # Reset all dependency overrides before test
     app.dependency_overrides = {}

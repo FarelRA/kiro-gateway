@@ -435,30 +435,34 @@ class TestExtractToolResultsFromAnthropicContent:
     def test_handles_empty_content_in_tool_result(self):
         """
         What it does: Verifies handling of empty content in tool_result.
-        Purpose: Ensure empty content is replaced with "(empty result)".
+        Purpose: Ensure empty content is preserved without modification.
         """
         print("Setup: Tool result with empty content...")
-        content = [{"type": "tool_result", "tool_use_id": "call_123", "content": ""}]
+        content = [
+            {"type": "tool_result", "tool_use_id": "call_123", "content": ""}
+        ]
 
         print("Action: Extracting tool results...")
         result = extract_tool_results_from_anthropic_content(content)
 
         print(f"Result: {result}")
-        assert result[0]["content"] == "(empty result)"
+        assert result[0]["content"] == ""
 
     def test_handles_none_content_in_tool_result(self):
         """
         What it does: Verifies handling of None content in tool_result.
-        Purpose: Ensure None content is replaced with "(empty result)".
+        Purpose: Ensure None content is converted to empty string.
         """
         print("Setup: Tool result with None content...")
-        content = [{"type": "tool_result", "tool_use_id": "call_123", "content": None}]
+        content = [
+            {"type": "tool_result", "tool_use_id": "call_123", "content": None}
+        ]
 
         print("Action: Extracting tool results...")
         result = extract_tool_results_from_anthropic_content(content)
 
         print(f"Result: {result}")
-        assert result[0]["content"] == "(empty result)"
+        assert result[0]["content"] == ""
 
     def test_handles_list_content_in_tool_result(self):
         """
@@ -521,10 +525,7 @@ class TestExtractToolResultsFromAnthropicContent:
         result = extract_tool_results_from_anthropic_content(content)
 
         print(f"Result: {result}")
-        assert len(result) == 1
-        assert result[0]["tool_use_id"] == "call_123"
-        # Images are extracted separately, so text content is empty
-        assert result[0]["content"] == "(empty result)"
+        assert result[0]["content"] == ""
 
     def test_handles_multiple_images_in_tool_result(self):
         """
@@ -542,7 +543,7 @@ class TestExtractToolResultsFromAnthropicContent:
                         "source": {
                             "type": "base64",
                             "media_type": "image/png",
-                            "data": "abc123",
+                            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
                         },
                     },
                     {
@@ -550,7 +551,7 @@ class TestExtractToolResultsFromAnthropicContent:
                         "source": {
                             "type": "base64",
                             "media_type": "image/jpeg",
-                            "data": "def456",
+                            "data": "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==",
                         },
                     },
                 ],
@@ -561,9 +562,7 @@ class TestExtractToolResultsFromAnthropicContent:
         result = extract_tool_results_from_anthropic_content(content)
 
         print(f"Result: {result}")
-        assert len(result) == 1
-        # Images are extracted separately, so text content is empty
-        assert result[0]["content"] == "(empty result)"
+        assert result[0]["content"] == ""
 
     def test_handles_text_and_image_in_tool_result(self):
         """

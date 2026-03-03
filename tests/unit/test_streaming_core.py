@@ -324,7 +324,8 @@ class TestParseKiroStream:
         ]
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
         
         mock_response.aiter_bytes = mock_aiter_bytes
         
@@ -357,7 +358,8 @@ class TestParseKiroStream:
         ]
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
         
         mock_response.aiter_bytes = mock_aiter_bytes
         
@@ -388,7 +390,8 @@ class TestParseKiroStream:
         ]
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
         
         mock_response.aiter_bytes = mock_aiter_bytes
         
@@ -420,7 +423,8 @@ class TestParseKiroStream:
         ]
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
         
         mock_response.aiter_bytes = mock_aiter_bytes
         
@@ -447,10 +451,30 @@ class TestParseKiroStream:
         """
         print("Setup: Mock response that times out...")
         
-        async def mock_aiter_bytes():
-            yield b'chunk'
+        # Use Future-based iterator to avoid unawaited coroutine warnings
+        class FutureBasedIterator:
+            def __init__(self):
+                self.data = [b'chunk']
+                self.index = 0
+            
+            def __aiter__(self):
+                return self
+            
+            def __anext__(self):
+                # Return a Future instead of a coroutine
+                future = asyncio.Future()
+                if self.index >= len(self.data):
+                    future.set_exception(StopAsyncIteration())
+                else:
+                    future.set_result(self.data[self.index])
+                    self.index += 1
+                return future
         
-        mock_response.aiter_bytes = mock_aiter_bytes
+        # Mock aiter_bytes to return our iterator
+        def create_iterator():
+            return FutureBasedIterator()
+        
+        mock_response.aiter_bytes = create_iterator
         
         async def mock_wait_for_timeout(*args, **kwargs):
             raise asyncio.TimeoutError()
@@ -467,29 +491,29 @@ class TestParseKiroStream:
         print("✓ FirstTokenTimeoutError raised on timeout")
     
     @pytest.mark.asyncio
-    async def test_handles_empty_response(self, mock_response):
+    async def test_handles_empty_response(self, mock_response, mock_parser):
         """
         What it does: Handles empty response gracefully.
-        Goal: Verify no events yielded for empty response.
+        Goal: Verify no events are yielded for empty response.
         """
         print("Setup: Mock empty response...")
         
         async def mock_aiter_bytes():
-            return
-            yield  # Make it a generator
+            # Empty generator - no data
+            if False:
+                yield b''
         
         mock_response.aiter_bytes = mock_aiter_bytes
-        
-        # Mock wait_for to raise StopAsyncIteration (empty response)
-        async def mock_wait_for_empty(*args, **kwargs):
-            raise StopAsyncIteration()
+        mock_parser.feed.return_value = []
+        mock_parser.get_tool_calls.return_value = []
         
         print("Action: Parsing empty stream...")
         events = []
         
-        with patch('kiro.streaming_core.asyncio.wait_for', side_effect=mock_wait_for_empty):
-            async for event in parse_kiro_stream(mock_response, first_token_timeout=30):
-                events.append(event)
+        with patch('kiro.streaming_core.AwsEventStreamParser', return_value=mock_parser):
+            with patch('kiro.streaming_core.FAKE_REASONING_ENABLED', False):
+                async for event in parse_kiro_stream(mock_response, first_token_timeout=30):
+                    events.append(event)
         
         print(f"Received {len(events)} events")
         assert len(events) == 0
@@ -504,7 +528,8 @@ class TestParseKiroStream:
         print("Setup: Mock response that raises GeneratorExit...")
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
             raise GeneratorExit()
         
         mock_response.aiter_bytes = mock_aiter_bytes
@@ -698,7 +723,8 @@ class TestCollectStreamToResult:
         mock_parser.get_tool_calls.return_value = []
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
         
         mock_response.aiter_bytes = mock_aiter_bytes
         
@@ -726,7 +752,8 @@ class TestCollectStreamToResult:
         ]
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
         
         mock_response.aiter_bytes = mock_aiter_bytes
         
@@ -756,7 +783,8 @@ class TestCollectStreamToResult:
         mock_parser.get_tool_calls.return_value = []
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
         
         mock_response.aiter_bytes = mock_aiter_bytes
         
@@ -785,7 +813,8 @@ class TestCollectStreamToResult:
         mock_parser.get_tool_calls.return_value = []
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
         
         mock_response.aiter_bytes = mock_aiter_bytes
         
@@ -812,7 +841,8 @@ class TestCollectStreamToResult:
         mock_parser.get_tool_calls.return_value = []
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
         
         mock_response.aiter_bytes = mock_aiter_bytes
         
@@ -856,7 +886,8 @@ class TestCollectStreamToResult:
         ]
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
         
         mock_response.aiter_bytes = mock_aiter_bytes
         
@@ -1056,7 +1087,8 @@ class TestThinkingParserIntegration:
         mock_parser.get_tool_calls.return_value = []
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
         
         mock_response.aiter_bytes = mock_aiter_bytes
         
@@ -1101,7 +1133,8 @@ class TestThinkingParserIntegration:
         mock_parser.get_tool_calls.return_value = []
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
         
         mock_response.aiter_bytes = mock_aiter_bytes
         
@@ -1130,7 +1163,8 @@ class TestThinkingParserIntegration:
         mock_parser.get_tool_calls.return_value = []
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
         
         mock_response.aiter_bytes = mock_aiter_bytes
         
@@ -1168,10 +1202,30 @@ class TestStreamingCoreErrorHandling:
         """
         print("Setup: Mock response that times out...")
         
-        async def mock_aiter_bytes():
-            yield b'chunk'
+        # Use Future-based iterator to avoid unawaited coroutine warnings
+        class FutureBasedIterator:
+            def __init__(self):
+                self.data = [b'chunk']
+                self.index = 0
+            
+            def __aiter__(self):
+                return self
+            
+            def __anext__(self):
+                # Return a Future instead of a coroutine
+                future = asyncio.Future()
+                if self.index >= len(self.data):
+                    future.set_exception(StopAsyncIteration())
+                else:
+                    future.set_result(self.data[self.index])
+                    self.index += 1
+                return future
         
-        mock_response.aiter_bytes = mock_aiter_bytes
+        # Mock aiter_bytes to return our iterator
+        def create_iterator():
+            return FutureBasedIterator()
+        
+        mock_response.aiter_bytes = create_iterator
         
         async def mock_wait_for_timeout(*args, **kwargs):
             raise asyncio.TimeoutError()
@@ -1194,7 +1248,8 @@ class TestStreamingCoreErrorHandling:
         print("Setup: Mock response that raises GeneratorExit...")
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
             raise GeneratorExit()
         
         mock_response.aiter_bytes = mock_aiter_bytes
@@ -1219,7 +1274,8 @@ class TestStreamingCoreErrorHandling:
         print("Setup: Mock response that raises RuntimeError...")
         
         async def mock_aiter_bytes():
-            yield b'chunk1'
+            for chunk in [b'chunk1']:
+                yield chunk
             raise RuntimeError("Test error")
         
         mock_response.aiter_bytes = mock_aiter_bytes

@@ -111,14 +111,14 @@ class TestThinkingParserInitialization:
     
     def test_custom_handling_mode(self):
         """
-        What it does: Verifies custom handling_mode parameter.
-        Purpose: Ensure handling_mode can be overridden.
+        What it does: Verifies ThinkingParser initialization without mode parameter.
+        Purpose: Ensure parser works with simplified API (no mode handling).
         """
-        print("Creating ThinkingParser with custom handling_mode...")
-        parser = ThinkingParser(handling_mode="remove")
+        print("Creating ThinkingParser (no mode parameter)...")
+        parser = ThinkingParser()
         
-        print(f"Comparing handling_mode: Expected 'remove', Got '{parser.handling_mode}'")
-        assert parser.handling_mode == "remove"
+        print("Parser created successfully without mode parameter")
+        assert parser.state == ParserState.PRE_CONTENT
     
     def test_custom_open_tags(self):
         """
@@ -546,101 +546,15 @@ class TestThinkingParserFoundThinkingBlock:
 class TestThinkingParserProcessForOutput:
     """Tests for ThinkingParser.process_for_output()."""
     
-    def test_as_reasoning_content_mode(self):
+    def test_returns_content_as_is(self):
         """
-        What it does: Verifies as_reasoning_content mode returns content as-is.
-        Purpose: Ensure content is returned unchanged for reasoning_content field.
+        What it does: Verifies process_for_output returns content unchanged.
+        Purpose: Ensure content is returned as-is for reasoning_content field.
         """
-        print("Testing as_reasoning_content mode...")
-        parser = ThinkingParser(handling_mode="as_reasoning_content")
+        print("Testing process_for_output returns content as-is...")
+        parser = ThinkingParser()
         parser.open_tag = "<thinking>"
         parser.close_tag = "</thinking>"
-        
-        result = parser.process_for_output("Thinking content", is_first=True, is_last=True)
-        
-        print(f"Comparing: Expected 'Thinking content', Got '{result}'")
-        assert result == "Thinking content"
-    
-    def test_remove_mode(self):
-        """
-        What it does: Verifies remove mode returns None.
-        Purpose: Ensure thinking content is removed.
-        """
-        print("Testing remove mode...")
-        parser = ThinkingParser(handling_mode="remove")
-        
-        result = parser.process_for_output("Thinking content", is_first=True, is_last=True)
-        
-        print(f"Comparing: Expected None, Got {result}")
-        assert result is None
-    
-    def test_pass_mode_first_chunk(self):
-        """
-        What it does: Verifies pass mode adds opening tag to first chunk.
-        Purpose: Ensure tags are preserved in pass mode.
-        """
-        print("Testing pass mode with first chunk...")
-        parser = ThinkingParser(handling_mode="pass")
-        parser.open_tag = "<thinking>"
-        parser.close_tag = "</thinking>"
-        
-        result = parser.process_for_output("Content", is_first=True, is_last=False)
-        
-        print(f"Comparing: Expected '<thinking>Content', Got '{result}'")
-        assert result == "<thinking>Content"
-    
-    def test_pass_mode_last_chunk(self):
-        """
-        What it does: Verifies pass mode adds closing tag to last chunk.
-        Purpose: Ensure closing tag is added in pass mode.
-        """
-        print("Testing pass mode with last chunk...")
-        parser = ThinkingParser(handling_mode="pass")
-        parser.open_tag = "<thinking>"
-        parser.close_tag = "</thinking>"
-        
-        result = parser.process_for_output("Content", is_first=False, is_last=True)
-        
-        print(f"Comparing: Expected 'Content</thinking>', Got '{result}'")
-        assert result == "Content</thinking>"
-    
-    def test_pass_mode_first_and_last_chunk(self):
-        """
-        What it does: Verifies pass mode adds both tags when first and last.
-        Purpose: Ensure both tags are added for single chunk.
-        """
-        print("Testing pass mode with first and last chunk...")
-        parser = ThinkingParser(handling_mode="pass")
-        parser.open_tag = "<thinking>"
-        parser.close_tag = "</thinking>"
-        
-        result = parser.process_for_output("Content", is_first=True, is_last=True)
-        
-        print(f"Comparing: Expected '<thinking>Content</thinking>', Got '{result}'")
-        assert result == "<thinking>Content</thinking>"
-    
-    def test_pass_mode_middle_chunk(self):
-        """
-        What it does: Verifies pass mode returns content as-is for middle chunk.
-        Purpose: Ensure no tags are added for middle chunks.
-        """
-        print("Testing pass mode with middle chunk...")
-        parser = ThinkingParser(handling_mode="pass")
-        parser.open_tag = "<thinking>"
-        parser.close_tag = "</thinking>"
-        
-        result = parser.process_for_output("Content", is_first=False, is_last=False)
-        
-        print(f"Comparing: Expected 'Content', Got '{result}'")
-        assert result == "Content"
-    
-    def test_strip_tags_mode(self):
-        """
-        What it does: Verifies strip_tags mode returns content without tags.
-        Purpose: Ensure content is returned without tags.
-        """
-        print("Testing strip_tags mode...")
-        parser = ThinkingParser(handling_mode="strip_tags")
         
         result = parser.process_for_output("Thinking content", is_first=True, is_last=True)
         
@@ -896,15 +810,14 @@ class TestThinkingParserConfigIntegration:
     
     def test_uses_config_handling_mode(self):
         """
-        What it does: Verifies parser uses FAKE_REASONING_HANDLING from config.
-        Purpose: Ensure config integration works.
+        What it does: Verifies ThinkingParser works without mode configuration.
+        Purpose: Ensure parser works with simplified API.
         """
-        print("Testing config handling mode...")
-        with patch('kiro.thinking_parser.FAKE_REASONING_HANDLING', 'remove'):
-            parser = ThinkingParser()
-            
-            print(f"Handling mode: {parser.handling_mode}")
-            assert parser.handling_mode == "remove"
+        print("Testing ThinkingParser without mode config...")
+        parser = ThinkingParser()
+        
+        print("Parser created successfully")
+        assert parser.state == ParserState.PRE_CONTENT
     
     def test_uses_config_open_tags(self):
         """

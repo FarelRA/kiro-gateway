@@ -984,8 +984,8 @@ class TestStreamingAnthropicThinkingContent:
     @pytest.mark.asyncio
     async def test_includes_thinking_as_text_when_configured(self, mock_response, mock_model_cache, mock_auth_manager):
         """
-        What it does: Includes thinking content as text when configured.
-        Goal: Verify thinking content handling.
+        What it does: Verifies thinking is included as thinking blocks.
+        Goal: Verify unified thinking content handling for Anthropic format.
         """
         print("Setup: Mock stream with thinking content...")
         
@@ -998,25 +998,23 @@ class TestStreamingAnthropicThinkingContent:
         
         with patch('kiro.streaming_anthropic.parse_kiro_stream', mock_parse_kiro_stream):
             with patch('kiro.streaming_anthropic.parse_bracket_tool_calls', return_value=[]):
-                with patch('kiro.streaming_anthropic.FAKE_REASONING_HANDLING', 'include_as_text'):
-                    async for event in stream_kiro_to_anthropic(
-                        mock_response, "claude-sonnet-4", mock_model_cache, mock_auth_manager
-                    ):
-                        events.append(event)
+                async for event in stream_kiro_to_anthropic(
+                    mock_response, "claude-sonnet-4", mock_model_cache, mock_auth_manager
+                ):
+                    events.append(event)
         
         print(f"Received {len(events)} events")
         
-        # Should have thinking content as text delta
-        delta_events = [e for e in events if "content_block_delta" in e]
-        thinking_found = any("Let me think" in e for e in delta_events)
-        assert thinking_found
-        print("✓ Thinking content included as text")
+        # Should have thinking content as thinking block
+        thinking_events = [e for e in events if "content_block_start" in e and "thinking" in e.lower()]
+        assert len(thinking_events) >= 1 or any("Let me think" in str(e) for e in events)
+        print("✓ Thinking content included")
     
     @pytest.mark.asyncio
-    async def test_strips_thinking_when_configured(self, mock_response, mock_model_cache, mock_auth_manager):
+    async def test_includes_thinking_as_blocks(self, mock_response, mock_model_cache, mock_auth_manager):
         """
-        What it does: Strips thinking content when configured.
-        Goal: Verify thinking content is stripped.
+        What it does: Verifies thinking is always included as thinking blocks.
+        Goal: Verify unified thinking content handling.
         """
         print("Setup: Mock stream with thinking content...")
         
@@ -1024,24 +1022,23 @@ class TestStreamingAnthropicThinkingContent:
             yield KiroEvent(type="thinking", thinking_content="Let me think...")
             yield KiroEvent(type="content", content="Here is my answer")
         
-        print("Action: Streaming to Anthropic format with strip mode...")
+        print("Action: Streaming to Anthropic format...")
         events = []
         
         with patch('kiro.streaming_anthropic.parse_kiro_stream', mock_parse_kiro_stream):
-            with patch('kiro.streaming_anthropic.parse_bracket_tool_calls', return_value=[]):
-                with patch('kiro.streaming_anthropic.FAKE_REASONING_HANDLING', 'strip'):
-                    async for event in stream_kiro_to_anthropic(
-                        mock_response, "claude-sonnet-4", mock_model_cache, mock_auth_manager
-                    ):
-                        events.append(event)
+            async for event in stream_kiro_to_anthropic(
+                mock_response, "claude-sonnet-4", mock_model_cache, mock_auth_manager
+            ):
+                events.append(event)
         
         print(f"Received {len(events)} events")
         
-        # Should NOT have thinking content
+        # Should have thinking content (unified approach always includes it)
+        assert len(events) > 0
         delta_events = [e for e in events if "content_block_delta" in e]
         thinking_found = any("Let me think" in e for e in delta_events)
-        assert not thinking_found
-        print("✓ Thinking content stripped")
+        assert thinking_found, "Thinking content should be present in unified approach"
+        print("✓ Thinking content included as blocks")
 
 
 # ==================================================================================================

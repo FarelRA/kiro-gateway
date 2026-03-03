@@ -2428,8 +2428,9 @@ class TestKiroAuthManagerSocialLogin:
         manager._save_credentials_to_sqlite()
         
         print("Verification: Reading SQLite to check saved data...")
-        conn = sqlite3.connect(temp_sqlite_db_social)
-        cursor = conn.cursor()
+        with sqlite3.connect(temp_sqlite_db_social) as conn:
+
+            cursor = conn.cursor()
         
         # Check that kirocli:social:token was updated
         cursor.execute("SELECT value FROM auth_kv WHERE key = ?", ("kirocli:social:token",))
@@ -2480,8 +2481,9 @@ class TestKiroAuthManagerSocialLogin:
             await manager._refresh_token_kiro_desktop()
             
             print("Verification: Reading SQLite to check persistence...")
-            conn = sqlite3.connect(temp_sqlite_db_social)
-            cursor = conn.cursor()
+            with sqlite3.connect(temp_sqlite_db_social) as conn:
+
+                cursor = conn.cursor()
             cursor.execute("SELECT value FROM auth_kv WHERE key = ?", ("kirocli:social:token",))
             row = cursor.fetchone()
             conn.close()
@@ -2560,8 +2562,9 @@ class TestKiroAuthManagerSocialLogin:
         import sqlite3
         
         print("Setup: Verifying database has no device-registration key...")
-        conn = sqlite3.connect(temp_sqlite_db_social)
-        cursor = conn.cursor()
+        with sqlite3.connect(temp_sqlite_db_social) as conn:
+
+            cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM auth_kv WHERE key LIKE '%device-registration%'")
         count = cursor.fetchone()[0]
         conn.close()
@@ -2595,8 +2598,9 @@ class TestKiroAuthManagerSocialLogin:
         manager._save_credentials_to_sqlite()
         
         print("Verification: Reading SQLite to check provider field...")
-        conn = sqlite3.connect(temp_sqlite_db_social)
-        cursor = conn.cursor()
+        with sqlite3.connect(temp_sqlite_db_social) as conn:
+
+            cursor = conn.cursor()
         cursor.execute("SELECT value FROM auth_kv WHERE key = ?", ("kirocli:social:token",))
         row = cursor.fetchone()
         conn.close()
