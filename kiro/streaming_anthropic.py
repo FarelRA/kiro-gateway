@@ -49,7 +49,7 @@ from kiro.streaming_core import (
 )
 from kiro.tokenizer import count_tokens, count_message_tokens, count_tools_tokens
 from kiro.parsers import parse_bracket_tool_calls, deduplicate_tool_calls
-from kiro.config import FIRST_TOKEN_TIMEOUT, FIRST_TOKEN_MAX_RETRIES, FAKE_REASONING_HANDLING
+from kiro.config import FIRST_TOKEN_TIMEOUT, FIRST_TOKEN_MAX_RETRIES
 
 if TYPE_CHECKING:
     from kiro.auth import KiroAuthManager
@@ -111,7 +111,7 @@ async def stream_kiro_to_anthropic(
     Generator for converting Kiro stream to Anthropic SSE format.
     
     Parses Kiro AWS SSE stream and converts events to Anthropic format.
-    Supports thinking content blocks when FAKE_REASONING_HANDLING=as_reasoning_content.
+    Supports thinking content blocks for extended thinking mode.
     
     Args:
         response: HTTP response with data stream
@@ -217,66 +217,29 @@ async def stream_kiro_to_anthropic(
                 thinking_content = event.thinking_content or ""
                 full_thinking_content += thinking_content
                 
-                # Handle thinking content based on mode
-                if FAKE_REASONING_HANDLING == "as_reasoning_content":
-                    # Use native Anthropic thinking content blocks
-                    if not thinking_block_started:
-                        thinking_block_index = current_block_index
-                        yield format_sse_event("content_block_start", {
-                            "type": "content_block_start",
-                            "index": thinking_block_index,
-                            "content_block": {
-                                "type": "thinking",
-                                "thinking": "",
-                                "signature": thinking_signature
-                            }
-                        })
-                        thinking_block_started = True
-                    
-                    if thinking_content:
-                        yield format_sse_event("content_block_delta", {
-                            "type": "content_block_delta",
-                            "index": thinking_block_index,
-                            "delta": {
-                                "type": "thinking_delta",
-                                "thinking": thinking_content
-                            }
-                        })
+                # Always use native Anthropic thinking content blocks
+                if not thinking_block_started:
+                    thinking_block_index = current_block_index
+                    yield format_sse_event("content_block_start", {
+                        "type": "content_block_start",
+                        "index": thinking_block_index,
+                        "content_block": {
+                            "type": "thinking",
+                            "thinking": "",
+                            "signature": thinking_signature
+                        }
+                    })
+                    thinking_block_started = True
                 
-                elif FAKE_REASONING_HANDLING == "include_as_text":
-                    # Include thinking as regular text content
-                    # Close thinking block if it was open (shouldn't happen in this mode)
-                    if thinking_block_started and thinking_block_index is not None:
-                        yield format_sse_event("content_block_stop", {
-                            "type": "content_block_stop",
-                            "index": thinking_block_index
-                        })
-                        thinking_block_started = False
-                        current_block_index += 1
-                    
-                    # Start text block if not started
-                    if not text_block_started:
-                        text_block_index = current_block_index
-                        yield format_sse_event("content_block_start", {
-                            "type": "content_block_start",
-                            "index": text_block_index,
-                            "content_block": {
-                                "type": "text",
-                                "text": ""
-                            }
-                        })
-                        text_block_started = True
-                    
-                    if thinking_content:
-                        yield format_sse_event("content_block_delta", {
-                            "type": "content_block_delta",
-                            "index": text_block_index,
-                            "delta": {
-                                "type": "text_delta",
-                                "text": thinking_content
-                            }
-                        })
-                # For "strip" mode, we just skip the thinking content
+                if thinking_content:
+                    yield format_sse_event("content_block_delta", {
+                        "type": "content_block_delta",
+                        "index": thinking_block_index,
+                        "delta": {
+                            "type": "thinking_delta",
+                            "thinking": thinking_content
+                        }
+                    })
             
             elif event.type == "tool_use" and event.tool_use:
                 # Close thinking block if open
@@ -575,8 +538,8 @@ async def collect_anthropic_response(
     # Build content blocks
     content_blocks = []
     
-    # Add thinking block FIRST if there's thinking content and mode is as_reasoning_content
-    if result.thinking_content and FAKE_REASONING_HANDLING == "as_reasoning_content":
+    # Add thinking block FIRST if there's thinking content
+    if result.thinking_content:
         content_blocks.append({
             "type": "thinking",
             "thinking": result.thinking_content,
@@ -584,15 +547,10 @@ async def collect_anthropic_response(
         })
     
     # Add text block if there's content
-    # For include_as_text mode, prepend thinking content to regular content
-    text_content = result.content
-    if result.thinking_content and FAKE_REASONING_HANDLING == "include_as_text":
-        text_content = result.thinking_content + text_content
-    
-    if text_content:
+    if result.content:
         content_blocks.append({
             "type": "text",
-            "text": text_content
+            "text": result.content
         })
     
     # Add tool use blocks

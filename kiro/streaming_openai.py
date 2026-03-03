@@ -41,7 +41,6 @@ from kiro.utils import generate_completion_id
 from kiro.config import (
     FIRST_TOKEN_TIMEOUT,
     FIRST_TOKEN_MAX_RETRIES,
-    FAKE_REASONING_HANDLING,
 )
 from kiro.tokenizer import count_tokens, count_message_tokens, count_tools_tokens
 
@@ -65,8 +64,7 @@ except ImportError:
     debug_logger = None
 
 
-# Re-export FirstTokenTimeoutError for backward compatibility
-__all__ = ['FirstTokenTimeoutError', 'stream_kiro_to_openai', 'stream_with_first_token_retry', 'collect_stream_response']
+__all__ = ['stream_kiro_to_openai', 'stream_with_first_token_retry', 'collect_stream_response']
 
 
 async def stream_kiro_to_openai_internal(
@@ -159,11 +157,8 @@ async def stream_kiro_to_openai_internal(
                 # Accumulate thinking content
                 full_thinking_content += event.thinking_content
                 
-                # Send as reasoning_content or content based on mode
-                if FAKE_REASONING_HANDLING == "as_reasoning_content":
-                    delta = {"reasoning_content": event.thinking_content}
-                else:
-                    delta = {"content": event.thinking_content}
+                # Always send as reasoning_content (OpenAI-compatible format)
+                delta = {"reasoning_content": event.thinking_content}
                 
                 if first_chunk:
                     delta["role"] = "assistant"

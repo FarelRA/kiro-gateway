@@ -154,7 +154,7 @@ def extract_tool_results_from_anthropic_content(content: Any) -> List[Dict[str, 
                 {
                     "type": "tool_result",
                     "tool_use_id": tool_use_id,
-                    "content": result_content or "(empty result)",
+                    "content": result_content,
                 }
             )
 
@@ -288,12 +288,33 @@ def convert_anthropic_messages(
         tool_calls = None
         tool_results = None
         images = None
+        reasoning_content = None
 
         if role == "assistant":
             # Assistant messages may contain tool_use blocks
             tool_calls = extract_tool_uses_from_anthropic_content(content)
             if tool_calls:
                 total_tool_calls += len(tool_calls)
+            
+            # Extract thinking/reasoning content from content blocks
+            if isinstance(content, list):
+                thinking_parts = []
+                for block in content:
+                    block_type = None
+                    thinking_text = None
+                    
+                    if isinstance(block, dict):
+                        block_type = block.get("type")
+                        thinking_text = block.get("thinking")
+                    elif hasattr(block, "type"):
+                        block_type = block.type
+                        thinking_text = getattr(block, "thinking", None)
+                    
+                    if block_type == "thinking" and thinking_text:
+                        thinking_parts.append(thinking_text)
+                
+                if thinking_parts:
+                    reasoning_content = "".join(thinking_parts)
 
         elif role == "user":
             # User messages may contain tool_result blocks and images
@@ -322,6 +343,7 @@ def convert_anthropic_messages(
             tool_calls=tool_calls if tool_calls else None,
             tool_results=tool_results if tool_results else None,
             images=images if images else None,
+            reasoning_content=reasoning_content,
         )
         unified_messages.append(unified_msg)
 

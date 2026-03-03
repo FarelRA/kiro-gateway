@@ -69,7 +69,7 @@ def _extract_tool_results_from_openai(content: Any) -> List[Dict[str, Any]]:
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": item.get("tool_use_id", ""),
-                    "content": extract_text_content(item.get("content", "")) or "(empty result)"
+                    "content": extract_text_content(item.get("content", ""))
                 })
     
     return tool_results
@@ -178,7 +178,7 @@ def convert_openai_messages_to_unified(messages: List[ChatMessage]) -> Tuple[str
             tool_result = {
                 "type": "tool_result",
                 "tool_use_id": msg.tool_call_id or "",
-                "content": extract_text_content(msg.content) or "(empty result)"
+                "content": extract_text_content(msg.content)
             }
             pending_tool_results.append(tool_result)
             total_tool_results += 1
@@ -206,10 +206,16 @@ def convert_openai_messages_to_unified(messages: List[ChatMessage]) -> Tuple[str
             tool_results = None
             images = None
 
+            # Extract reasoning_content from assistant messages
+            reasoning_content = None
+            
             if msg.role == "assistant":
                 tool_calls = _extract_tool_calls_from_openai(msg) or None
                 if tool_calls:
                     total_tool_calls += len(tool_calls)
+                # Extract reasoning_content if present (from previous responses)
+                if hasattr(msg, 'reasoning_content') and msg.reasoning_content:
+                    reasoning_content = msg.reasoning_content
             elif msg.role == "user":
                 tool_results = _extract_tool_results_from_openai(msg.content) or None
                 if tool_results:
@@ -224,7 +230,8 @@ def convert_openai_messages_to_unified(messages: List[ChatMessage]) -> Tuple[str
                 content=extract_text_content(msg.content),
                 tool_calls=tool_calls,
                 tool_results=tool_results,
-                images=images
+                images=images,
+                reasoning_content=reasoning_content
             )
             processed.append(unified_msg)
     

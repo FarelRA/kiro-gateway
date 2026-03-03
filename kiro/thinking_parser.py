@@ -38,7 +38,6 @@ from dataclasses import dataclass, field
 from loguru import logger
 
 from kiro.config import (
-    FAKE_REASONING_HANDLING,
     FAKE_REASONING_OPEN_TAGS,
     FAKE_REASONING_INITIAL_BUFFER_SIZE,
 )
@@ -101,7 +100,6 @@ class ThinkingParser:
     
     def __init__(
         self,
-        handling_mode: Optional[str] = None,
         open_tags: Optional[List[str]] = None,
         initial_buffer_size: int = FAKE_REASONING_INITIAL_BUFFER_SIZE,
     ):
@@ -109,16 +107,9 @@ class ThinkingParser:
         Initialize the thinking parser.
         
         Args:
-            handling_mode: How to handle thinking blocks. One of:
-                - "as_reasoning_content": Extract to reasoning_content field
-                - "remove": Remove thinking block completely
-                - "pass": Pass through with original tags
-                - "strip_tags": Remove tags but keep content
-                If None, uses FAKE_REASONING_HANDLING from config.
             open_tags: List of opening tags to detect. If None, uses config.
             initial_buffer_size: Max chars to buffer while looking for opening tag.
         """
-        self.handling_mode = handling_mode or FAKE_REASONING_HANDLING
         self.open_tags = open_tags or FAKE_REASONING_OPEN_TAGS
         self.initial_buffer_size = initial_buffer_size
         
@@ -355,31 +346,14 @@ class ThinkingParser:
         is_last: bool,
     ) -> Optional[str]:
         """
-        Process thinking content according to handling mode.
+        Process thinking content for output as reasoning_content.
         
         Args:
             thinking_content: Raw thinking content
-            is_first: True if this is the first thinking chunk
-            is_last: True if this is the last thinking chunk
+            is_first: True if this is the first thinking chunk (unused, kept for compatibility)
+            is_last: True if this is the last thinking chunk (unused, kept for compatibility)
         
         Returns:
-            Processed content string or None (for "remove" mode)
+            Thinking content as-is (to be sent as reasoning_content field)
         """
-        if not thinking_content:
-            return None
-        
-        if self.handling_mode == "remove":
-            return None
-        
-        if self.handling_mode == "pass":
-            # Add tags back
-            prefix = self.open_tag if is_first and self.open_tag else ""
-            suffix = self.close_tag if is_last and self.close_tag else ""
-            return f"{prefix}{thinking_content}{suffix}"
-        
-        if self.handling_mode == "strip_tags":
-            # Return content without tags
-            return thinking_content
-        
-        # "as_reasoning_content" - return as-is, caller will put in reasoning_content field
-        return thinking_content
+        return thinking_content if thinking_content else None

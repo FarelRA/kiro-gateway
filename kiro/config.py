@@ -428,7 +428,11 @@ def _warn_timeout_configuration():
 # WHY "FAKE"? This is NOT native extended thinking API support. Instead, we inject
 # <thinking_mode>enabled</thinking_mode> tags into the prompt, and the model responds
 # with <thinking>...</thinking> blocks that we parse and convert to reasoning_content.
-# It works great, but it's a hack - hence "fake" reasoning.
+#
+# Behavior:
+# - Outgoing: Thinking content is sent as reasoning_content (OpenAI) or thinking blocks (Anthropic)
+# - Incoming: When reasoning_content comes back in history, it's inlined with <thinking> tags
+# - This preserves thinking context across conversation turns
 #
 # Default: true (enabled) - provides premium experience out of the box
 _FAKE_REASONING_RAW: str = os.getenv("FAKE_REASONING", "").lower()
@@ -440,19 +444,6 @@ FAKE_REASONING_ENABLED: bool = _FAKE_REASONING_RAW not in ("false", "0", "no", "
 # Higher values allow for more detailed reasoning but increase response time and token usage.
 # Default: 4000 tokens
 FAKE_REASONING_MAX_TOKENS: int = int(os.getenv("FAKE_REASONING_MAX_TOKENS", "4000"))
-
-# How to handle the thinking block in responses:
-# - "as_reasoning_content": Extract to reasoning_content field (OpenAI-compatible, recommended)
-# - "remove": Remove thinking block completely, return only final answer
-# - "pass": Pass through as-is with original tags in content
-# - "strip_tags": Remove tags but keep thinking content in regular content
-#
-# Default: "as_reasoning_content"
-_FAKE_REASONING_HANDLING_RAW: str = os.getenv("FAKE_REASONING_HANDLING", "as_reasoning_content").lower()
-if _FAKE_REASONING_HANDLING_RAW in ("as_reasoning_content", "remove", "pass", "strip_tags"):
-    FAKE_REASONING_HANDLING: str = _FAKE_REASONING_HANDLING_RAW
-else:
-    FAKE_REASONING_HANDLING: str = "as_reasoning_content"
 
 # List of opening tags to detect thinking blocks.
 # The parser will look for any of these tags at the start of the response.

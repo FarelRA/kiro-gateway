@@ -39,10 +39,10 @@ from loguru import logger
 
 from kiro.parsers import AwsEventStreamParser, parse_bracket_tool_calls, deduplicate_tool_calls
 from kiro.config import (
+    FAKE_REASONING_ENABLED,
+    FAKE_REASONING_OPEN_TAGS,
     FIRST_TOKEN_TIMEOUT,
     FIRST_TOKEN_MAX_RETRIES,
-    FAKE_REASONING_ENABLED,
-    FAKE_REASONING_HANDLING,
 )
 from kiro.thinking_parser import ThinkingParser
 
@@ -143,8 +143,8 @@ async def parse_kiro_stream(
     # Initialize thinking parser if fake reasoning is enabled
     thinking_parser: Optional[ThinkingParser] = None
     if FAKE_REASONING_ENABLED and enable_thinking_parser:
-        thinking_parser = ThinkingParser(handling_mode=FAKE_REASONING_HANDLING)
-        logger.debug(f"Thinking parser initialized with mode: {FAKE_REASONING_HANDLING}")
+        thinking_parser = ThinkingParser()
+        logger.debug("Thinking parser initialized")
     
     try:
         # Create iterator for reading bytes

@@ -62,12 +62,14 @@ class UnifiedMessage:
         tool_results: List of tool results (for user messages with tool responses)
         images: List of images in unified format (for multimodal user messages)
                 Format: [{"media_type": "image/jpeg", "data": "base64..."}]
+        reasoning_content: Thinking/reasoning content from assistant messages (for context preservation)
     """
     role: str
     content: Any = ""
     tool_calls: Optional[List[Dict[str, Any]]] = None
     tool_results: Optional[List[Dict[str, Any]]] = None
     images: Optional[List[Dict[str, Any]]] = None
+    reasoning_content: Optional[str] = None
 
 
 @dataclass
@@ -663,10 +665,6 @@ def convert_tool_results_to_kiro_format(tool_results: List[Dict[str, Any]]) -> L
         else:
             content_text = extract_text_content(content)
         
-        # Ensure content is not empty - Kiro API requires non-empty content
-        if not content_text:
-            content_text = "(empty result)"
-        
         kiro_results.append({
             "content": [{"text": content_text}],
             "status": "success",
@@ -695,7 +693,7 @@ def extract_tool_results_from_content(content: Any) -> List[Dict[str, Any]]:
         for item in content:
             if isinstance(item, dict) and item.get("type") == "tool_result":
                 tool_results.append({
-                    "content": [{"text": extract_text_content(item.get("content", "")) or "(empty result)"}],
+                    "content": [{"text": extract_text_content(item.get("content", "")) or "."}],
                     "status": "success",
                     "toolUseId": item.get("tool_use_id", "")
                 })
@@ -825,10 +823,6 @@ def tool_results_to_text(tool_results: List[Dict[str, Any]]) -> str:
         else:
             content_text = extract_text_content(content)
         
-        # Use placeholder if content is empty
-        if not content_text:
-            content_text = "(empty result)"
-        
         # Format: [Tool Result] (id)\ncontent
         if tool_use_id:
             parts.append(f"[Tool Result ({tool_use_id})]\n{content_text}")
@@ -899,7 +893,7 @@ def strip_all_tool_content(messages: List[UnifiedMessage]) -> Tuple[List[Unified
                     content_parts.append(result_text)
             
             # Join all parts with double newline
-            content = "\n\n".join(content_parts) if content_parts else "(empty)"
+            content = "\n\n".join(content_parts) if content_parts else ""
             
             # Create a copy of the message without tool content but with text representation
             # IMPORTANT: Preserve images from the original message (e.g., screenshots from MCP tools)
@@ -1113,7 +1107,7 @@ def ensure_first_message_is_user(messages: List[UnifiedMessage]) -> List[Unified
         >>> result[0].role
         'user'
         >>> result[0].content
-        '(empty)'
+        ''
     """
     if not messages:
         return messages
@@ -1125,10 +1119,9 @@ def ensure_first_message_is_user(messages: List[UnifiedMessage]) -> List[Unified
         )
         
         # Create minimal synthetic user message (matches LiteLLM behavior)
-        # Using "(empty)" as minimal valid content to avoid disrupting conversation context
         synthetic_user = UnifiedMessage(
             role="user",
-            content="(empty)"
+            content=""
         )
         
         return [synthetic_user] + messages
@@ -1197,7 +1190,7 @@ def ensure_alternating_roles(messages: List[UnifiedMessage]) -> List[UnifiedMess
     
     Kiro API requires alternating userInputMessage and assistantResponseMessage.
     When consecutive user messages are detected, synthetic assistant messages
-    with "(empty)" placeholder are inserted between them to maintain alternation.
+    with "." placeholder are inserted between them to maintain alternation.
     
     This fixes multiple unknown roles (converted to user)
     create consecutive userInputMessage entries that violate Kiro API requirements.
@@ -1220,7 +1213,7 @@ def ensure_alternating_roles(messages: List[UnifiedMessage]) -> List[UnifiedMess
         >>> result[1].role
         'assistant'
         >>> result[1].content
-        '(empty)'
+        ''
     """
     if not messages or len(messages) < 2:
         return messages
@@ -1235,7 +1228,7 @@ def ensure_alternating_roles(messages: List[UnifiedMessage]) -> List[UnifiedMess
         if msg.role == "user" and prev_role == "user":
             synthetic_assistant = UnifiedMessage(
                 role="assistant",
-                content="(empty)"  # Consistent with build_kiro_history() placeholder
+                content=""
             )
             result.append(synthetic_assistant)
             synthetic_count += 1
@@ -1275,10 +1268,6 @@ def build_kiro_history(messages: List[UnifiedMessage], model_id: str) -> List[Di
         if msg.role == "user":
             content = extract_text_content(msg.content)
             
-            # Fallback for empty content - Kiro API requires non-empty content
-            if not content:
-                content = "(empty)"
-            
             user_input = {
                 "content": content,
                 "modelId": model_id,
@@ -1317,9 +1306,9 @@ def build_kiro_history(messages: List[UnifiedMessage], model_id: str) -> List[Di
         elif msg.role == "assistant":
             content = extract_text_content(msg.content)
             
-            # Fallback for empty content - Kiro API requires non-empty content
-            if not content:
-                content = "(empty)"
+            # Inline reasoning_content with <thinking> tags if present (for context preservation)
+            if msg.reasoning_content:
+                content = f"<thinking>{msg.reasoning_content}</thinking>{content}"
             
             assistant_response = {"content": content}
             
@@ -1438,18 +1427,14 @@ def build_kiro_payload(
         current_content = f"{full_system_prompt}\n\n{current_content}"
     
     # If current message is assistant, need to add it to history
-    # and create user message "Continue"
+    # and create empty user message
     if current_message.role == "assistant":
         history.append({
             "assistantResponseMessage": {
                 "content": current_content
             }
         })
-        current_content = "Continue"
-    
-    # If content is empty - use "Continue"
-    if not current_content:
-        current_content = "Continue"
+        current_content = ""
     
     # Process images in current message - extract from message or content
     # IMPORTANT: images go directly into userInputMessage, NOT into userInputMessageContext
