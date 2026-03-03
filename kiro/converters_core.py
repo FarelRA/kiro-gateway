@@ -864,13 +864,13 @@ def strip_all_tool_content(messages: List[UnifiedMessage]) -> Tuple[List[Unified
     
     for msg in messages:
         # Check if this message has any tool content
-        has_tool_calls = bool(msg.tool_calls)
-        has_tool_results = bool(msg.tool_results)
+        has_tool_calls = msg.tool_calls is not None and len(msg.tool_calls) > 0
+        has_tool_results = msg.tool_results is not None and len(msg.tool_results) > 0
         
         if has_tool_calls or has_tool_results:
-            if has_tool_calls:
+            if has_tool_calls and msg.tool_calls:
                 total_tool_calls_stripped += len(msg.tool_calls)
-            if has_tool_results:
+            if has_tool_results and msg.tool_results:
                 total_tool_results_stripped += len(msg.tool_results)
             
             # Start with existing text content
@@ -881,13 +881,13 @@ def strip_all_tool_content(messages: List[UnifiedMessage]) -> Tuple[List[Unified
                 content_parts.append(existing_content)
             
             # Convert tool_calls to text (for assistant messages)
-            if has_tool_calls:
+            if has_tool_calls and msg.tool_calls:
                 tool_text = tool_calls_to_text(msg.tool_calls)
                 if tool_text:
                     content_parts.append(tool_text)
             
             # Convert tool_results to text (for user messages)
-            if has_tool_results:
+            if has_tool_results and msg.tool_results:
                 result_text = tool_results_to_text(msg.tool_results)
                 if result_text:
                     content_parts.append(result_text)
@@ -1268,7 +1268,7 @@ def build_kiro_history(messages: List[UnifiedMessage], model_id: str) -> List[Di
         if msg.role == "user":
             content = extract_text_content(msg.content)
             
-            user_input = {
+            user_input: Dict[str, Any] = {
                 "content": content,
                 "modelId": model_id,
                 "origin": "AI_EDITOR",
@@ -1310,7 +1310,7 @@ def build_kiro_history(messages: List[UnifiedMessage], model_id: str) -> List[Di
             if msg.reasoning_content:
                 content = f"<thinking>{msg.reasoning_content}</thinking>{content}"
             
-            assistant_response = {"content": content}
+            assistant_response: Dict[str, Any] = {"content": content}
             
             # Process tool_calls
             tool_uses = extract_tool_uses_from_message(msg.content, msg.tool_calls)
@@ -1471,7 +1471,7 @@ def build_kiro_payload(
         current_content = inject_thinking_tags(current_content)
     
     # Build userInputMessage
-    user_input_message = {
+    user_input_message: Dict[str, Any] = {
         "content": current_content,
         "modelId": model_id,
         "origin": "AI_EDITOR",
@@ -1486,7 +1486,7 @@ def build_kiro_payload(
         user_input_message["userInputMessageContext"] = user_input_context
     
     # Assemble final payload
-    payload = {
+    payload: Dict[str, Any] = {
         "conversationState": {
             "chatTriggerType": "MANUAL",
             "conversationId": conversation_id,
